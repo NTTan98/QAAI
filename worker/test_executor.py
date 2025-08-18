@@ -102,4 +102,5 @@ def execute():
     })
 
 if __name__ == "__main__":
-    app.run(port=6001, debug=True)
+    # Bind to all interfaces so other containers can reach this service.
+    app.run(host="0.0.0.0", port=6001, debug=True, use_reloader=False)
