@@ -10,7 +10,7 @@ RUN playwright install --with-deps
 COPY . .
 
 # Expose cổng mặc định cho Flask
-EXPOSE 5000 6000 6001
+EXPOSE 5000
 
 # Lệnh mặc định (sẽ override bằng docker-compose)
 CMD ["python", "master/app.py"]

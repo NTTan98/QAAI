@@ -1,25 +1,35 @@
-from flask import Flask, request, jsonify
+# /d:/test/AutoAITest/worker/test_generator.py
+from datetime import datetime
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import json
-from datetime import datetime
 
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-app = Flask(__name__)
-
-@app.route("/generate", methods=["POST"])
-def generate():
-    data = request.get_json()
-    feature = data.get("feature_description", "")
-    task_id = data.get("task_id", "unknown")
-
+def generate_test_cases(feature_description: str, task_id: str = "unknown", model_name: str = "gemini-2.5-flash") -> dict:
+    """
+    Trả về dict giống structure trước đây:
+    {
+      "task_id": ...,
+      "worker": "test-generator",
+      "output": {"test_cases": [...]},
+      "status": "completed" / "error",
+      "timestamp": ...,
+      optionally "error" or "raw" on lỗi
+    }
+    """
+    feature = feature_description or ""
     if not feature:
-        return jsonify({"error": "Missing feature_description"}), 400
+        return {
+            "task_id": task_id,
+            "worker": "test-generator",
+            "status": "error",
+            "error": "Missing feature_description",
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
 
-    model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""
     Bạn là một hệ thống tạo test case tự động.
 
@@ -47,15 +57,19 @@ def generate():
     }}
     ]
     """
-    response = model.generate_content(prompt)
-    # Debug: print raw LLM output
-    print("LLM raw output:", response.text)
 
-    # Clean LLM output: remove code block markers and whitespace
-    cleaned = response.text.strip()
+    model = genai.GenerativeModel(model_name)
+    response = model.generate_content(prompt)
+
+    # Debug: raw LLM output
+    raw = getattr(response, "text", str(response))
+    print("LLM raw output:", raw)
+
+    # Clean LLM output: remove code fences and surrounding whitespace
+    cleaned = raw.strip()
     if cleaned.startswith('```'):
+        # remove leading backticks and optional language tag
         cleaned = cleaned.lstrip('`')
-        # Remove possible language tag (e.g., json)
         cleaned = cleaned.split('\n', 1)[-1]
         if cleaned.endswith('```'):
             cleaned = cleaned.rsplit('```', 1)[0]
@@ -64,18 +78,19 @@ def generate():
     try:
         test_cases = json.loads(cleaned)
     except Exception:
-        return jsonify({"error": "LLM output is not valid JSON", "raw": response.text}), 500
+        return {
+            "task_id": task_id,
+            "worker": "test-generator",
+            "status": "error",
+            "error": "LLM output is not valid JSON",
+            "raw": raw,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
 
-    return jsonify({
+    return {
         "task_id": task_id,
         "worker": "test-generator",
-        "output": {
-            "test_cases": test_cases
-        },
+        "output": {"test_cases": test_cases},
         "status": "completed",
         "timestamp": datetime.utcnow().isoformat() + "Z"
-    })
-
-if __name__ == "__main__":
-    # Bind to all interfaces so other containers can reach this service.
-    app.run(host="0.0.0.0", port=6000, debug=True, use_reloader=False)
+    }

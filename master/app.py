@@ -2,14 +2,28 @@ from flask import Flask, request, jsonify
 import requests
 from datetime import datetime
 import os
+import sys
+
+# Make sure parent folder is on sys.path so we can import the sibling `worker` package
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+# Try to import local worker functions. If not available, leave as None and fall back to HTTP calls.
+try:
+    from worker.test_generator import generate_test_cases
+except Exception:
+    generate_test_cases = None
+
+try:
+    from worker.test_executor import execute_task
+except Exception:
+    execute_task = None
 
 app = Flask(__name__)
 
-# Địa chỉ các worker MCP.
-# Khi chạy trong docker-compose, sử dụng service name (generator, executor).
-# Cho phép override bằng biến môi trường TEST_GENERATOR_URL/TEST_EXECUTOR_URL để thuận tiện cho dev local.
-TEST_GENERATOR_URL = os.getenv("TEST_GENERATOR_URL", "http://generator:6000/generate")
-TEST_EXECUTOR_URL = os.getenv("TEST_EXECUTOR_URL", "http://executor:6001/execute")
+# Using local worker functions (no HTTP calls).
+# Ensure `worker/test_generator.py` exposes `generate_test_cases(feature_description, task_id)`
+# and `worker/test_executor.py` exposes `execute_task(data, headless=True)`.
+
 
 @app.route("/run-tests", methods=["POST"])
 def run_tests_from_nlp():
@@ -20,19 +34,23 @@ def run_tests_from_nlp():
 
     task_id = data.get("task_id", f"task-{datetime.utcnow().isoformat()}")
 
-    # Debug: log target worker URLs
-    print(f"Calling test-generator at {TEST_GENERATOR_URL}")
-    print(f"Calling test-executor at {TEST_EXECUTOR_URL}")
+    # Debug: confirm we're calling local worker functions
+    gen_target = "<local:function:generate_test_cases>" if callable(generate_test_cases) else "<missing>"
+    exec_target = "<local:function:execute_task>" if callable(execute_task) else "<missing>"
+    print(f"Calling test-generator at {gen_target}")
+    print(f"Calling test-executor at {exec_target}")
 
     # Step 1: Gọi test-generator để tạo test case MCP-style
     try:
-        gen_response = requests.post(
-            TEST_GENERATOR_URL,
-            json={"feature_description": feature, "task_id": task_id},
-            timeout=30,
-        )
-        gen_response.raise_for_status()
-        gen_data = gen_response.json()
+        # Require local generate_test_cases function
+        if not callable(generate_test_cases):
+            return jsonify({"error": "Local test generator function not available"}), 500
+
+        # Call local function which returns MCP-style dict
+        gen_data = generate_test_cases(feature, task_id)
+        if hasattr(gen_data, "json") and callable(gen_data.json):
+            gen_data = gen_data.json()
+
         test_cases = gen_data.get("output", {}).get("test_cases", [])
     except Exception as e:
         return jsonify({"error": f"Test-generator failed: {str(e)}"}), 500
@@ -42,13 +60,14 @@ def run_tests_from_nlp():
 
     # Step 2: Gọi test-executor để chạy test
     try:
-        exec_response = requests.post(
-            TEST_EXECUTOR_URL,
-            json={"task_id": task_id, "input": {"test_cases": test_cases}},
-            timeout=60,
-        )
-        exec_response.raise_for_status()
-        exec_data = exec_response.json()
+        if not callable(execute_task):
+            return jsonify({"error": "Local test executor function not available"}), 500
+
+        exec_payload = {"task_id": task_id, "input": {"test_cases": test_cases}}
+        exec_data = execute_task(exec_payload)
+        if hasattr(exec_data, "json") and callable(exec_data.json):
+            exec_data = exec_data.json()
+
         results = exec_data.get("output", {}).get("results", [])
     except Exception as e:
         return jsonify({"error": f"Test-executor failed: {str(e)}"}), 500

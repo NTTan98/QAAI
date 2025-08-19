@@ -12,27 +12,3 @@ services:
     volumes:
       - .:/app
     restart: always
-
-  generator:
-    build: .
-    container_name: qaai_generator
-    command: python worker/test_generator.py
-    ports:
-      - "6000:6000"
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-    restart: always
-
-  executor:
-    build: .
-    container_name: qaai_executor
-    command: python worker/test_executor.py
-    ports:
-      - "6001:6001"
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-    restart: always
