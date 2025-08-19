@@ -1,10 +1,7 @@
 from playwright.sync_api import sync_playwright
 from datetime import datetime
-import os
 import re
-
-# Tạo thư mục lưu ảnh nếu chưa có
-os.makedirs("screenshots", exist_ok=True)
+import base64
 
 def sanitize_filename(text):
     """Loại bỏ ký tự không hợp lệ khỏi tên file"""
@@ -43,7 +40,7 @@ def execute_task(data, headless=True):
                 actual = ""
                 success = False
                 logs = []
-                screenshot_path = None
+                screenshot_base64 = None
 
                 try:
                     for step in steps:
@@ -75,27 +72,25 @@ def execute_task(data, headless=True):
                             actual = f"Unknown action: {action}"
                             success = False
 
-                    # Chụp ảnh sau khi test
-                    safe_task_id = sanitize_filename(task_id)
-                    safe_title = sanitize_filename(title)
-                    screenshot_path = f"screenshots/{safe_task_id}_{safe_title}.png"
+                    # Chụp ảnh sau khi test -> base64
                     try:
-                        page.screenshot(path=screenshot_path)
+                        screenshot_bytes = page.screenshot()
+                        screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
                     except Exception as e:
                         logs.append(f"Screenshot failed: {str(e)}")
-                        screenshot_path = None
+                        screenshot_base64 = None
 
                 except Exception as e:
                     actual = f"Lỗi: {str(e)}"
                     success = False
-                    screenshot_path = None
+                    screenshot_base64 = None
 
                 results.append({
                     "title": title,
                     "expected": expected,
                     "actual": actual,
                     "success": success,
-                    "screenshot": screenshot_path,
+                    "screenshot": screenshot_base64,  # chỉ trả base64
                     "logs": logs
                 })
         finally:
