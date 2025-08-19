@@ -2,3 +2,4 @@ flask
 python-dotenv
 google-generativeai
 playwright==1.54.0
+flask-cors
