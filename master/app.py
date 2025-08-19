@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
+from flask_cors import CORS
 from datetime import datetime
 import os
 import sys
@@ -19,7 +20,7 @@ except Exception:
     execute_task = None
 
 app = Flask(__name__)
-
+CORS(app)
 # Using local worker functions (no HTTP calls).
 # Ensure `worker/test_generator.py` exposes `generate_test_cases(feature_description, task_id)`
 # and `worker/test_executor.py` exposes `execute_task(data, headless=True)`.
