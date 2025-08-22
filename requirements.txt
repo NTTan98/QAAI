@@ -1,5 +1,17 @@
 flask
+flask-cors
 python-dotenv
 google-generativeai
 playwright==1.54.0
-flask-cors
+
+# CrewAI core
+crewai>=0.28.8
+crewai-tools>=0.2.6
+
+# LangChain + adapter cho Gemini
+langchain>=0.2.14
+langchain-google-genai>=0.1.6
+
+# Nếu muốn dùng OpenAI song song
+openai>=1.37.0
+langchain-openai>=0.1.16
