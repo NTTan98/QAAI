@@ -16,7 +16,6 @@ ExecutorAgent = Agent(
         "Bạn luôn cung cấp báo cáo chi tiết về kết quả test execution bao gồm "
         "số steps pass/fail, lý do fail, và screenshot khi cần thiết."
     ),
-    llm="gemini/gemini-2.5-flash",
+    llm="gemini/gemini-1.5-flash",
     tools=[playwright_test_tool],
-    verbose=True,
 )

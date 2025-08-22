@@ -1,24 +1,29 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from crewai import Crew
-from tasks.generator_task import GeneratorTask
-from tasks.executor_task import ExecutorTask
+from tasks.generator_task import create_generator_task
+from tasks.executor_task import create_executor_task
+from agents.generator_agent import GENERATOR_AGENT
+from agents.executor_agent import ExecutorAgent
 
-user_input = """{"steps": [                                                                                                                                                                                                                            
-{"action": "goto", "target": "https://www.saucedemo.com/"},                                                                                                                                                                
-{"action": "fill", "target": "#user-name", "value": "standard_user"},
-{"action": "fill", "target": "#password", "value": "secret_sauce"},
-{"action": "click", "target": "#login-button"}
-]}"""
+feature_desc = input("Enter feature description: ")
 
-ExecutorTask.description = ExecutorTask.description.format(user_input=user_input)
+GeneratorTask = create_generator_task(feature_desc)
+
+ExecutorTask = create_executor_task(GeneratorTask)
 
 crew = Crew(
     name="test_crew",
     description="A crew for generating and managing test cases.",
-    tasks=[ExecutorTask]
+    agents=[
+        GENERATOR_AGENT,
+        ExecutorAgent
+    ],
+    tasks=[GeneratorTask, ExecutorTask]
 )
 
 
 if __name__ == "__main__":
-
     result = crew.kickoff()
     print(result)

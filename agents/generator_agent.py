@@ -14,5 +14,5 @@ GENERATOR_AGENT = Agent(
         "theo format Playwright."
         "Bạn luôn đảm bảo step rõ ràng, có thứ tự hợp lý và dễ chạy tự động."
     ),
-    llm="gemini/gemini-2.5-flash",
+    llm="gemini/gemini-1.5-flash",
 )
