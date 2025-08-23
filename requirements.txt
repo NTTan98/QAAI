@@ -5,8 +5,8 @@ google-generativeai
 playwright==1.54.0
 
 # CrewAI core
-crewai>=0.28.8
-crewai-tools>=0.2.6
+crewai
+crewai-tools
 
 # LangChain + adapter cho Gemini
 langchain>=0.2.14

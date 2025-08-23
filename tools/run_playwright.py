@@ -2,10 +2,9 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 from playwright.sync_api import sync_playwright
 import time
-import base64
 import json
 from datetime import datetime
-from typing import Type, List, Dict, Any
+from typing import Type
 
 class PlaywrightToolInput(BaseModel):
     """Input schema for Playwright Test Execution Tool."""
@@ -17,190 +16,144 @@ class PlaywrightTestTool(BaseTool):
     args_schema: Type[BaseModel] = PlaywrightToolInput
 
     def _run(self, test_case_json: str) -> str:
+        # Parse JSON string → dict
         try:
             test_case = json.loads(test_case_json)
-        except json.JSONDecodeError as e:
+        except Exception as e:
             return json.dumps({
                 "status": "error",
-                "message": f"Invalid JSON input: {str(e)}",
-                "results": []
-            }, ensure_ascii=False, indent=2)
+                "message": f"Không thể parse JSON input: {str(e)}"
+            })
 
         results = []
-        suggestions = []
-        print("🚀 Bắt đầu thực thi test case...")
-        print("test case json:", test_case_json)
+        variables = {}
+        total_steps = len(test_case.get("steps", []))
+        passed = 0
+        failed = 0
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context(
-                viewport={'width': 1280, 'height': 720},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            )
+            browser = p.chromium.launch(headless=False)  # True nếu muốn chạy ẩn
+            context = browser.new_context()
             page = context.new_page()
-            page.set_default_timeout(30000)
 
-            for i, step in enumerate(test_case.get("steps", [])):
-                step_result = {
-                    "step_index": i + 1,
-                    "step": step,
-                    "status": "fail",
-                    "message": "",
-                    "timestamp": datetime.now().isoformat()
-                }
+            for index, step in enumerate(test_case.get("steps", []), start=1):
+                action = step.get("action")
+                target = step.get("target")
+                value = step.get("value")
+                timeout = step.get("timeout", 5000)
+                status = "pass"
+                message = ""
+                timestamp = datetime.now().isoformat()
 
                 try:
-                    action = step.get("action", "").lower()
-                    target = step.get("target")  # Sử dụng target thống nhất
-                    value = step.get("value")  # Giữ value cho fill hoặc type
-                    timeout = step.get("timeout", 10000)
-
+                    # --- GOTO ---
                     if action == "goto":
-                        if not target:
-                            raise ValueError("Target không được để trống cho action 'goto'")
-                        page.goto(target, wait_until='domcontentloaded', timeout=timeout)
-                        step_result["message"] = f"Điều hướng đến {target} thành công"
-                        step_result["status"] = "pass"
+                        page.goto(target, timeout=timeout)
+                        message = f"Điều hướng đến {target} thành công"
 
+                    # --- CLICK ---
                     elif action == "click":
-                        if not target:
-                            raise ValueError("Target không được để trống cho action 'click'")
                         page.wait_for_selector(target, timeout=timeout)
-                        page.click(target, timeout=timeout)
-                        step_result["message"] = f"Click vào element {target} thành công"
-                        step_result["status"] = "pass"
+                        page.click(target)
+                        message = f"Click vào {target} thành công"
 
-                    elif action == "fill":
-                        if not target or value is None:
-                            raise ValueError("Target và value không được để trống cho action 'fill'")
-                        page.wait_for_selector(target, timeout=timeout)
-                        page.fill(target, str(value), timeout=timeout)
-                        step_result["message"] = f"Điền '{value}' vào {target} thành công"
-                        step_result["status"] = "pass"
-
+                    # --- TYPE ---
                     elif action == "type":
-                        if not target or value is None:
-                            raise ValueError("Target và value không được để trống cho action 'type'")
                         page.wait_for_selector(target, timeout=timeout)
-                        page.type(target, str(value), delay=100)
-                        step_result["message"] = f"Gõ '{value}' vào {target} thành công"
-                        step_result["status"] = "pass"
+                        page.fill(target, value)
+                        message = f"Gõ '{value}' vào {target} thành công"
 
+                    # --- FILL ---
+                    elif action == "fill":
+                        page.wait_for_selector(target, timeout=timeout)
+                        page.fill(target, value)
+                        message = f"Điền '{value}' vào {target} thành công"
+
+                    # --- WAIT ---
                     elif action == "wait":
-                        wait_time = float(value) if value else 1.0
-                        time.sleep(wait_time)
-                        step_result["message"] = f"Chờ {wait_time} giây thành công"
-                        step_result["status"] = "pass"
+                        time.sleep(int(value))
+                        message = f"Chờ {value} giây thành công"
 
-                    elif action == "wait_for_selector":
-                        if not target:
-                            raise ValueError("Target không được để trống cho action 'wait_for_selector'")
+                    # --- PRESS ---
+                    elif action == "press":
                         page.wait_for_selector(target, timeout=timeout)
-                        step_result["message"] = f"Chờ element {target} xuất hiện thành công"
-                        step_result["status"] = "pass"
+                        page.press(target, value)
+                        message = f"Nhấn phím '{value}' trên {target} thành công"
 
-                    elif action == "assert_text_contains":
-                        if not target or not value:
-                            raise ValueError("Target và value không được để trống cho action 'assert_text_contains'")
+                    # --- WAIT FOR SELECTOR ---
+                    elif action.lower() == "waitforselector":
                         page.wait_for_selector(target, timeout=timeout)
-                        actual_text = page.inner_text(target)
-                        if str(value).lower() in actual_text.lower():
-                            step_result["message"] = f"Text '{value}' được tìm thấy trong {target}"
-                            step_result["status"] = "pass"
+                        message = f"Đợi selector {target} xuất hiện thành công"
+
+                    # --- GET TEXT ---
+                    elif action.lower() == "gettext":
+                        element = page.wait_for_selector(target, timeout=timeout)
+                        text = element.inner_text()
+                        var_name = step.get("variable")
+                        if var_name:
+                            variables[var_name] = text
+                            message = f"Lưu biến {var_name} = {text}"
                         else:
-                            step_result["message"] = f"Text '{value}' không được tìm thấy. Actual: '{actual_text}'"
-                            step_result["status"] = "fail"
-                            suggestions.append(f"Step {i+1}: Kiểm tra target '{target}' hoặc nội dung text '{value}' có đúng không.")
+                            message = f"Lấy text: {text}"
 
-                    elif action == "assert_url_contains":
-                        if not value:
-                            raise ValueError("Value không được để trống cho action 'assert_url_contains'")
-                        current_url = page.url
-                        if str(value).lower() in current_url.lower():
-                            step_result["message"] = f"URL chứa '{value}'. Current URL: {current_url}"
-                            step_result["status"] = "pass"
+                    # --- LOG ---
+                    elif action.lower() == "log":
+                        msg = step.get("message", "")
+                        for k, v in variables.items():
+                            msg = msg.replace(f"{{{{{k}}}}}", str(v))
+                        print("📝 Log:", msg)
+                        message = f"Log: {msg}"
+
+                    # --- ASSERT ---
+                    elif action.lower() == "assert":
+                        condition = step.get("condition")
+                        if condition == "isVisible":
+                            element = page.locator(target)
+                            assert element.is_visible(), f"{target} không hiển thị"
+                            message = f"Assert: {target} hiển thị"
+                        elif condition and ".includes(" in condition:
+                            var_name, expected = condition.replace(")", "").split(".includes(")
+                            var_name = var_name.strip()
+                            expected = expected.strip("'\"")
+                            actual = variables.get(var_name)
+                            assert expected in str(actual), f"'{expected}' không có trong '{actual}'"
+                            message = f"Assert: '{expected}' nằm trong {var_name} = {actual}"
                         else:
-                            step_result["message"] = f"URL không chứa '{value}'. Current URL: {current_url}"
-                            step_result["status"] = "fail"
-                            suggestions.append(f"Step {i+1}: Kiểm tra giá trị URL '{value}' hoặc đảm bảo điều hướng đúng.")
+                            raise ValueError(f"Condition '{condition}' không được hỗ trợ")
 
-                    elif action == "assert_element_visible":
-                        if not target:
-                            raise ValueError("Target không được để trống cho action 'assert_element_visible'")
-                        element = page.locator(target)
-                        if element.is_visible():
-                            step_result["message"] = f"Element {target} hiển thị"
-                            step_result["status"] = "pass"
-                        else:
-                            step_result["message"] = f"Element {target} không hiển thị"
-                            step_result["status"] = "fail"
-                            suggestions.append(f"Step {i+1}: Kiểm tra target '{target}' hoặc đảm bảo element hiển thị trên trang.")
-
-                    elif action == "select_option":
-                        if not target or not value:
-                            raise ValueError("Target và value không được để trống cho action 'select_option'")
-                        page.wait_for_selector(target, timeout=timeout)
-                        page.select_option(target, value)
-                        step_result["message"] = f"Chọn option '{value}' trong {target} thành công"
-                        step_result["status"] = "pass"
-
-                    elif action == "hover":
-                        if not target:
-                            raise ValueError("Target không được để trống cho action 'hover'")
-                        page.wait_for_selector(target, timeout=timeout)
-                        page.hover(target)
-                        step_result["message"] = f"Hover vào {target} thành công"
-                        step_result["status"] = "pass"
-
-                    elif action == "double_click":
-                        if not target:
-                            raise ValueError("Target không được để trống cho action 'double_click'")
-                        page.wait_for_selector(target, timeout=timeout)
-                        page.dblclick(target)
-                        step_result["message"] = f"Double click vào {target} thành công"
-                        step_result["status"] = "pass"
-
-                    elif action == "press_key":
-                        key = value or "Enter"
-                        page.keyboard.press(key)
-                        step_result["message"] = f"Nhấn phím '{key}' thành công"
-                        step_result["status"] = "pass"
-
-                    elif action == "screenshot":
-                        screenshot_bytes = page.screenshot(full_page=True)
-                        screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                        step_result["screenshot"] = screenshot_base64
-                        step_result["message"] = "Chụp ảnh màn hình thành công"
-                        step_result["status"] = "pass"
+                    # --- SCREENSHOT ---
+                    elif action.lower() == "screenshot":
+                        file_path = step.get("path", f"screenshot_{index}.png")
+                        page.screenshot(path=file_path)
+                        message = f"Chụp màn hình lưu tại {file_path}"
 
                     else:
-                        step_result["message"] = f"Action '{action}' không được hỗ trợ"
-                        step_result["status"] = "fail"
-                        suggestions.append(f"Step {i+1}: Action '{action}' không được hỗ trợ. Kiểm tra tên action.")
+                        status = "fail"
+                        message = f"Action '{action}' không được hỗ trợ"
 
                 except Exception as e:
-                    step_result["message"] = f"Lỗi khi thực thi step: {str(e)}"
-                    step_result["status"] = "fail"
-                    suggestions.append(f"Step {i+1}: Lỗi '{str(e)}'. Kiểm tra target, value, hoặc kết nối mạng.")
-                    try:
-                        screenshot_bytes = page.screenshot(full_page=True)
-                        step_result["screenshot"] = base64.b64encode(screenshot_bytes).decode("utf-8")
-                    except:
-                        pass
+                    status = "fail"
+                    message = str(e)
 
-                results.append(step_result)
-                if step_result["status"] == "fail" and step.get("critical", False):
-                    step_result["message"] += " - Dừng test do step critical fail"
-                    suggestions.append(f"Step {i+1}: Step critical thất bại. Xem lại cấu hình step hoặc trạng thái ứng dụng.")
-                    break
+                if status == "pass":
+                    passed += 1
+                else:
+                    failed += 1
+
+                results.append({
+                    "step_index": index,
+                    "step": step,
+                    "status": status,
+                    "message": message,
+                    "timestamp": timestamp
+                })
 
             browser.close()
 
         return json.dumps({
             "status": "completed",
-            "total_steps": len(results),
-            "passed": len([r for r in results if r["status"] == "pass"]),
-            "failed": len([r for r in results if r["status"] == "fail"]),
-            "results": results,
-            "suggestions": suggestions if suggestions else ["Không có lỗi, tất cả steps đều pass."]
+            "total_steps": total_steps,
+            "passed": passed,
+            "failed": failed,
+            "results": results
         }, ensure_ascii=False, indent=2)

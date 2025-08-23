@@ -3,6 +3,7 @@ from tools.run_playwright import PlaywrightTestTool
 import os
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+LLL_MODEL = os.getenv("LLL_MODEL")
 
 playwright_test_tool = PlaywrightTestTool()
 
@@ -16,6 +17,6 @@ ExecutorAgent = Agent(
         "Bạn luôn cung cấp báo cáo chi tiết về kết quả test execution bao gồm "
         "số steps pass/fail, lý do fail, và screenshot khi cần thiết."
     ),
-    llm="gemini/gemini-1.5-flash",
+    llm=LLL_MODEL,
     tools=[playwright_test_tool],
 )
