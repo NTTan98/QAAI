@@ -4,7 +4,7 @@ from agents.executor_agent import ExecutorAgent
 def create_executor_task(generator_task):
     return Task(
         description=(
-            "Bạn sẽ nhận được một JSON test case từ output của . "
+            "Bạn sẽ nhận được một JSON test case từ output của GeneratorTask. "
             "Nhiệm vụ của bạn là: "
             "1. Kiểm tra format JSON test case hợp lệ "
             "2. Sử dụng PlaywrightTestTool để thực thi các steps trong test case "
